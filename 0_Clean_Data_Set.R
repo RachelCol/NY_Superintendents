@@ -3,10 +3,14 @@
 # install.packages("dplyr")
 # install.packages("tidyr")
 # install.packages("readr")
+# install.packages("readxl")
 
 library(dplyr)
 library(tidyr)
 library(readr)
+library(readxl)
+
+# -----
 
 case_data <- read_csv("ny_superintendents.csv")
 NYS <- case_data
@@ -24,6 +28,10 @@ which( colnames(NYS)=="Q6_1")
 NYS[104, 13] <- "45"
 NYS[126, 13] <- "1"
 NYS$Q6_1 <- as.numeric(NYS$Q6_1)
+
+# remove incomplete rows
+
+NYS <- subset(NYS, Progress == 100)
 
 # change multiple choice responses to categorical
 NYS$Q2 <- ifelse(NYS$Q2 == "Yes", 1,
@@ -141,6 +149,98 @@ NYS$Q24 <- ifelse(NYS$Q24 == "Strongly disagree", 1,
 NYS$Q25 <- ifelse(NYS$Q25 == "Yes", 1,
                   ifelse(NYS$Q25 == "No", 2, 
                          ifelse(NYS$Q25 == "Don't know", 3, NA)))
+
+# Create new variable combining all where most administer standardized tests 
+# themselves at home (Q34 == 4), or are at least allowed to do so (Q33 == 1).
+table(NYS$Q34, NYS$Q33)
+NYS$TESTHOME <- ifelse(NYS$Q34 == 4 | NYS$Q33 == 1, 1, 0)
+
+# Create new variable combining all where most parents do the written narratives 
+# themselves (Q30 == 3), or are at least allowed to do so (Q32 == 1).
+table(NYS$Q30, NYS$Q32)
+NYS$NARRHOME <- ifelse(NYS$Q30 == 3 | NYS$Q32 == 1, 1, 0)
+
+# create count row, for counting the number of respondents per county later
+NYS$countn <- ifelse(NYS$Progress == "100", 1, 0) # change to 1 for complete survey
+
+# -----
+
+# CHECK whether all entries are complete:
+
+
+
+# -----
+
+# ADD COUNTY FIPS CODES
+
+# create county name and values columns in NYS data set; remove "County"
+NYS$county_name <- NYS$Q1
+NYS$county_name <- substr(NYS$county_name, 1, nchar(NYS$county_name)-7)
+NYS$county_name[NYS$county_name == "Saint Lawrence"] <- "St Lawrence"
+
+# load county codes data set
+county_codes <- read.csv("NY_Municipalities_and_County_FIPS_codes.csv")
+code_data <- county_codes[, -c(2:5)]
+colnames(code_data) <- c("county_name", "fips")
+# additional data cleaning
+code_data <- code_data[!duplicated(code_data), ] # remove duplicates
+code_data[30, 2] <- 36089 # fix the St. Lawrence Code (it was incorrect)
+code_data <- code_data[-28, ] # remove New York City (it's a duplicate)
+
+# merge into original data set, for other analysis: 
+NYS <- merge(x = NYS, y = code_data, 
+             by = "county_name", all.x=TRUE)
+
+# -----
+
+# ADDING COUNTY-LEVEL INFORMATION
+
+# The following data sets were downloaded here: 
+# https://www.ers.usda.gov/data-products/county-level-data-sets/download-data/ 
+
+# cleaning income data set, which is labeled 2019
+income <- read_excel("PovertyEstimates.xls")
+# PCTPOVALL_2019 = poverty rate in 2019
+# MEDHHINC_2019 = median household income in 2019
+income_data <- income[, c(1, 11, 26)]
+income_data <- income_data[-c(1:4), ]
+colnames(income_data) <- c("fips", "pctpov", "medhhinc")
+income_data$pctpov <- round(as.numeric(income_data$pctpov), digits = 1)
+income_data$medhhinc <- as.numeric(income_data$medhhinc)
+
+# merge into original data set: 
+NYS <- merge(x = NYS, y = income_data, by = "fips", all.x=TRUE)
+
+# cleaning education data set, which is labeled 2015-2019
+education <- read_excel("Education.xls")
+ba_data <- education[, c(1, 47)]
+ba_data <- ba_data[-c(1:4), ]
+colnames(ba_data) <- c("fips", "pctba")
+
+# merge into original data set: 
+NYS <- merge(x = NYS, y = ba_data, 
+             by = "fips", all.x=TRUE)
+
+# cleaning education data set, creating 2015 column
+population <- read_excel("PopulationEstimates.xlsx")
+pop_data <- population[, c(1, 7:8)]
+pop_data <- pop_data[-1, ]
+colnames(pop_data) <- c("fips", "pop2010", "pop2020")
+pop_data$pop2010 <- as.numeric(pop_data$pop2010)
+pop_data$pop2020 <- as.numeric(pop_data$pop2020)
+pop_data$pop2015 <- round((pop_data$pop2010 + pop_data$pop2020)/2)
+
+# merge into original data set: 
+NYS <- merge(x = NYS, y = pop_data, 
+             by = "fips", all.x=TRUE)
+
+# -----
+
+# Create variables for regression: 
+
+
+
+# ----- 
 
 # save cleaned data set as new file:
 
